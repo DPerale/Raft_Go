@@ -244,9 +244,13 @@ func request_vote(server_addresses *[]string, server_state *state) {
 			server_state.state = 2
 			server_state.term_votes_received = 1
 			term := server_state.term
+			index := server_state.max_index
+			m_server_log.Lock()
+			log_term := server_log[index].term
+			m_server_log.Unlock()
 			m_state.Unlock()
 			for i := 0; i < len(*server_addresses); i++ {
-				go request_vote_message((*server_addresses)[i], server_state, term)
+				go request_vote_message((*server_addresses)[i], server_state, term, log_term, index)
 			}
 		}
 		time.Sleep(time.Duration(rand.Intn(400-300)+300) * time.Millisecond)
