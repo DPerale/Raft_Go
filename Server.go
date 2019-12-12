@@ -228,6 +228,7 @@ func request_vote_message(server_address string, server_state *state, term int, 
 		half_servers := math.Floor(float64(server_state.server_num)/2) + 1
 		if server_state.term_votes_received == int(half_servers) && server_state.state == 2 {
 			server_state.state = 0
+			fmt.Println("sono il leader")
 		}
 		m_state.Unlock()
 	}
@@ -242,6 +243,7 @@ func request_vote(server_addresses *[]string, server_state *state) {
 		} else {
 			server_state.term = server_state.term + 1
 			server_state.state = 2
+			server_state.term_votes_send = server_state.term
 			server_state.term_votes_received = 1
 			term := server_state.term
 			index := server_state.max_index
@@ -306,12 +308,13 @@ func main() {
 		server_num:          num_server,
 		state:               3,
 		term:                0,
-		max_index:           1,
+		max_index:           0,
 		hb_received:         false,
 		term_vote_send:      0,
 		term_votes_received: 0}
 
 	server_log = append(server_log, log_atom{0, -1})
+	fmt.Println(server_log[0].term)
 
 	//task periodici
 	go request_vote(&server_addresses, &server_state)
