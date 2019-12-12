@@ -71,7 +71,7 @@ func commit_message(server_addresses *[]string, server_address string, server_st
 	body, err := ioutil.ReadAll(resp.Body)
 	index_received, _ := strconv.Atoi(string(body))
 	m_state.Lock()
-	if index_received != (server_state.max_index + 1) {
+	if index_received != (server_state.max_index) {
 		m_state.Unlock()
 	} else {
 		m_state.Unlock()
@@ -115,7 +115,7 @@ func append_entries_message(server_addresses *[]string, server_address string, s
 	body, err := ioutil.ReadAll(resp.Body)
 	index_received, _ := strconv.Atoi(string(body))
 	m_state.Lock()
-	if index_received != (server_state.max_index + 1) {
+	if index_received != (server_state.max_index) {
 		m_state.Unlock()
 	} else {
 		m_state.Unlock()
@@ -306,10 +306,12 @@ func main() {
 		server_num:          num_server,
 		state:               3,
 		term:                0,
-		max_index:           0,
+		max_index:           1,
 		hb_received:         false,
 		term_vote_send:      0,
 		term_votes_received: 0}
+
+	server_log = append(server_log, log_atom{0, -1})
 
 	//task periodici
 	go request_vote(&server_addresses, &server_state)
