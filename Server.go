@@ -27,10 +27,11 @@ type log_atom struct {
 }
 
 var server_log []log_atom
-var server_log_temp []log_atom
 var number_commit_values int
 
 type state struct {
+	id         string
+	id_leader  string
 	server_num int
 
 	state     int
@@ -45,7 +46,6 @@ type state struct {
 
 var m_state sync.Mutex
 var m_server_log sync.Mutex
-var m_server_log_temp sync.Mutex
 
 // funzione che permette il recupero senza uscire del tutto dall'applicazione
 // in caso di errore
@@ -60,79 +60,35 @@ type MoreParameters struct {
 	server_state     *state
 }
 
-func commit_message(server_addresses *[]string, server_address string, server_state *state, term int, value int) {
-	defer recovery()
-	client := http.Client{Timeout: 300 * time.Millisecond}
-	resp, err := client.Get("http://" + server_address + "/commit?term=" + strconv.Itoa(term) + "&value" + strconv.Itoa(value))
-	if err != nil {
-		panic(err)
-	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	index_received, _ := strconv.Atoi(string(body))
-	m_state.Lock()
-	if index_received != (server_state.max_index) {
-		m_state.Unlock()
-	} else {
-		m_state.Unlock()
-		fmt.Println("/ricevuta risposta commit")
+// func append_entries_message(server_addresses *[]string, server_address string, server_state *state, term int, value int, log_term int, index int) {
+// 	defer recovery()
+// 	client := http.Client{Timeout: 300 * time.Millisecond}
+// 	resp, err := client.Get("http://" + server_address + "/append_entries?term=" + strconv.Itoa(term) + "&value" + strconv.Itoa(value) + "&log_term=" + strconv.Itoa(log_term) + "&index=" + strconv.Itoa(index))
+// 	if err != nil {
+// 		panic(err)
+// 	}
+// 	defer resp.Body.Close()
+// 	body, err := ioutil.ReadAll(resp.Body)
+// 	index_received, _ := strconv.Atoi(string(body))
+// 	m_state.Lock()
+// 	if index_received != (server_state.max_index) {
+// 		m_state.Unlock()
+// 	} else {
+// 		m_state.Unlock()
+// 		fmt.Println("/ricevuta risposta appendentries")
 
-		m_server_log_temp.Lock()
-		number_commit_values = number_commit_values + 1
-		half_servers := math.Floor(float64(server_state.server_num)/2) + 1
-		if number_commit_values == int(half_servers) {
-			m_server_log.Lock()
-			m_state.Lock()
-			server_log = append(server_log, server_log_temp[0])
-			server_state.max_index = server_state.max_index + 1
-			m_state.Unlock()
-			m_server_log.Unlock()
-			server_log_temp = server_log_temp[1:]
-			number_commit_values = 0
-			if len(server_log_temp) <= 0 {
-				m_server_log_temp.Unlock()
-			} else {
-				value := server_log_temp[0].value
-				number_commit_values = number_commit_values + 1
-				m_server_log_temp.Unlock()
-				for i := 0; i < len(*server_addresses); i++ {
-					go append_entries_message(server_addresses, (*server_addresses)[i], server_state, term, value)
-				}
-			}
-
-		}
-	}
-}
-
-func append_entries_message(server_addresses *[]string, server_address string, server_state *state, term int, value int) {
-	defer recovery()
-	client := http.Client{Timeout: 300 * time.Millisecond}
-	resp, err := client.Get("http://" + server_address + "/append_entries?term=" + strconv.Itoa(term) + "&value" + strconv.Itoa(value))
-	if err != nil {
-		panic(err)
-	}
-	defer resp.Body.Close()
-	body, err := ioutil.ReadAll(resp.Body)
-	index_received, _ := strconv.Atoi(string(body))
-	m_state.Lock()
-	if index_received != (server_state.max_index) {
-		m_state.Unlock()
-	} else {
-		m_state.Unlock()
-		fmt.Println("/ricevuta risposta appendentries")
-
-		m_server_log_temp.Lock()
-		number_commit_values = number_commit_values + 1
-		half_servers := math.Floor(float64(server_state.server_num)/2) + 1
-		if number_commit_values == int(half_servers) {
-			number_commit_values = 0
-			m_server_log_temp.Unlock()
-			for i := 0; i < len(*server_addresses); i++ {
-				go commit_message(server_addresses, (*server_addresses)[i], server_state, term, value)
-			}
-		}
-	}
-}
+// 		m_server_log_temp.Lock()
+// 		number_commit_values = number_commit_values + 1
+// 		half_servers := math.Floor(float64(server_state.server_num)/2) + 1
+// 		if number_commit_values == int(half_servers) {
+// 			number_commit_values = 0
+// 			m_server_log_temp.Unlock()
+// 			for i := 0; i < len(*server_addresses); i++ {
+// 				go commit_message(server_addresses, (*server_addresses)[i], server_state, term, value)
+// 			}
+// 		}
+// 	}
+// }
 
 func (mp *MoreParameters) handler(w http.ResponseWriter, r *http.Request) {
 	//time.Sleep(1 * time.Second)
@@ -167,8 +123,22 @@ func (mp *MoreParameters) handler(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(parameters["term"][0]))
 		}
 	case "/heartbeat":
-		m_state.Lock()
+
 		term_received, _ := strconv.Atoi(parameters["term"][0])
+		id_received, _ := strconv.Atoi(parameters["id"][0])
+		index_received, _ := strconv.Atoi(parameters["index"][0])
+		log_term_received, _ := strconv.Atoi(parameters["log_term"][0])
+		entrie_term_received, _ := strconv.Atoi(parameters["entrie_term"][0])
+		entrie_value_received, _ := strconv.Atoi(parameters["entrie_value"][0])
+
+		fmt.Println(term_received)
+		fmt.Println(id_received)
+		fmt.Println(index_received)
+		fmt.Println(log_term_received)
+		fmt.Println(entrie_term_received)
+		fmt.Println(entrie_value_received)
+
+		m_state.Lock()
 		if term_received < mp.server_state.term {
 			m_state.Unlock()
 		} else {
@@ -190,18 +160,47 @@ func (mp *MoreParameters) handler(w http.ResponseWriter, r *http.Request) {
 		if mp.server_state.state == 0 {
 			m_state.Unlock()
 			value_received, _ := strconv.Atoi(parameters["value"][0])
-			m_server_log_temp.Lock()
-			server_log_temp = append(server_log_temp, log_atom{term, value_received})
+			m_server_log.Lock()
+			server_log = append(server_log, log_atom{term, value_received})
 			number_commit_values = number_commit_values + 1
-			m_server_log_temp.Unlock()
-			for i := 0; i < len(*mp.server_addresses); i++ {
-				go append_entries_message(mp.server_addresses, (*mp.server_addresses)[i], mp.server_state, term, value_received)
-			}
+			m_server_log.Unlock()
+			//w.Write([]byte(parameters["term"][0]))
 		} else {
 			m_state.Unlock()
+			//w.Write([]byte(parameters["term"][0]))
+			// indirizzare al leader
 		}
-	case "/append_entries":
-		fmt.Println("/append_entries")
+	case "/commit":
+		fmt.Println("/commit")
+
+		term_received, _ := strconv.Atoi(parameters["term"][0])
+		term_to_commit_received, _ := strconv.Atoi(parameters["term_to_commit"][0])
+		value_to_commit_received, _ := strconv.Atoi(parameters["value_to_commit"][0])
+		index_to_commit_received, _ := strconv.Atoi(parameters["index_to_commit"][0])
+
+		m_state.Lock()
+		if term_received < mp.server_state.term {
+			//tralascia
+			m_state.Unlock()
+		} else {
+			m_state.Unlock()
+			m_server_log.Lock()
+			if len(server_log) > index_to_commit_received {
+				if server_log[index_to_commit_received].term == term_to_commit_received && server_log[index_to_commit_received].value == value_to_commit_received {
+					m_server_log.Unlock()
+					m_state.Lock()
+					mp.server_state.max_index = mp.server_state.max_index + 1
+					m_state.Unlock()
+				} else {
+					//qualcosa non va, richiedere log
+					m_server_log.Unlock()
+				}
+			} else {
+				//manca qualcosa richiedere log
+				m_server_log.Unlock()
+			}
+		}
+
 	default:
 		fmt.Println("cosa vuoi")
 	}
@@ -243,7 +242,7 @@ func request_vote(server_addresses *[]string, server_state *state) {
 		} else {
 			server_state.term = server_state.term + 1
 			server_state.state = 2
-			server_state.term_votes_send = server_state.term
+			server_state.term_vote_send = server_state.term
 			server_state.term_votes_received = 1
 			term := server_state.term
 			index := server_state.max_index
@@ -259,24 +258,82 @@ func request_vote(server_addresses *[]string, server_state *state) {
 	}
 }
 
-func heartbeat_message(server_address string, term int) {
+func commit_message(server_address string, half_servers int, server_state *state, term int, term_to_commit int, value_to_commit int, index_to_commit int) {
 	defer recovery()
 	client := http.Client{Timeout: 300 * time.Millisecond}
-	resp, err := client.Get("http://" + server_address + "/heartbeat?term=" + strconv.Itoa(term))
+	resp, err := client.Get("http://" + server_address + "/commit?term=" + strconv.Itoa(term) + "&term_to_commit" + strconv.Itoa(term_to_commit) + "&value_to_commit" + strconv.Itoa(value_to_commit) + "&index_to_commit" + strconv.Itoa(index_to_commit))
 	if err != nil {
 		panic(err)
 	}
 	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	term_received, _ := strconv.Atoi(string(body))
+	if term_received == term {
+		//possibile commit value
+		fmt.Println("/ricevuta risposta commit")
+		m_server_log.Lock()
+		number_commit_values = number_commit_values + 1
+		if number_commit_values == int(half_servers) {
+			m_state.Lock()
+			server_state.max_index = server_state.max_index + 1
+			m_state.Unlock()
+		}
+		// dire al client che va bene (forse da mettere sul log anche il client che l'ha chiesto)
+	}
+}
+
+func heartbeat_message(server_addresses *[]string, server_state *state, half_servers int, server_address string, term int, id string, index int, log_term int, entrie_term int, entrie_value int) {
+	defer recovery()
+	client := http.Client{Timeout: 300 * time.Millisecond}
+	if entrie_term == -1 {
+		//heartbeat normale
+		resp, err := client.Get("http://" + server_address + "/heartbeat?term=" + strconv.Itoa(term) + "&id" + id + "&index=" + strconv.Itoa(index) + "&log_term=" + strconv.Itoa(log_term))
+		if err != nil {
+			panic(err)
+		}
+		defer resp.Body.Close()
+	} else {
+		//heartbeat con entrie
+		resp, err := client.Get("http://" + server_address + "/heartbeat?term=" + strconv.Itoa(term) + "&id" + id + "&index=" + strconv.Itoa(index) + "&log_term=" + strconv.Itoa(log_term) + "&entrie_term=" + strconv.Itoa(entrie_term) + "&entrie_value=" + strconv.Itoa(entrie_value))
+		if err != nil {
+			panic(err)
+		}
+		defer resp.Body.Close()
+		body, err := ioutil.ReadAll(resp.Body)
+		term_received, _ := strconv.Atoi(string(body))
+		if term_received == term {
+			m_server_log.Lock()
+			number_commit_values = number_commit_values + 1
+			if number_commit_values == int(half_servers) {
+				number_commit_values = 0
+				m_server_log.Unlock()
+				for i := 0; i < len(*server_addresses); i++ {
+					go commit_message(server_address, half_servers, server_state, term, entrie_term, entrie_value, index+1)
+				}
+			}
+		}
+	}
 }
 
 func heartbeat(server_addresses *[]string, server_state *state) {
 	for true {
 		m_state.Lock()
 		if server_state.state == 0 {
+			id := server_state.id
 			term := server_state.term
+			index := server_state.max_index
+			m_server_log.Lock()
+			log_term := server_log[index].term
+			entrie := log_atom{-1, -1}
+			if len(server_log) > (server_state.max_index + 1) {
+				entrie = server_log[server_state.max_index+1]
+				//append (entries, server_log[server_state.next_index])
+			}
+			m_server_log.Unlock()
+			half_servers := math.Floor(float64(server_state.server_num)/2) + 1
 			m_state.Unlock()
 			for i := 0; i < len(*server_addresses); i++ {
-				go heartbeat_message((*server_addresses)[i], term)
+				go heartbeat_message(server_addresses, server_state, int(half_servers), (*server_addresses)[i], term, id, index, log_term, entrie.term, entrie.value)
 			}
 		} else {
 			m_state.Unlock()
@@ -305,6 +362,8 @@ func main() {
 
 	//inizializzazione parametri server
 	server_state := state{
+		id:                  "192.168.1.168",
+		id_leader:           "",
 		server_num:          num_server,
 		state:               3,
 		term:                0,
