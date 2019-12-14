@@ -283,7 +283,7 @@ func request_vote() {
 func commit_message(server_address string, half_servers int, term int, term_to_commit int, value_to_commit int, index_to_commit int) {
 	defer recovery()
 	client := http.Client{Timeout: 300 * time.Millisecond}
-	resp, err := client.Get("http://" + server_address + "/commit?term=" + strconv.Itoa(term) + "&term_to_commit" + strconv.Itoa(term_to_commit) + "&value_to_commit" + strconv.Itoa(value_to_commit) + "&index_to_commit" + strconv.Itoa(index_to_commit))
+	resp, err := client.Get("http://" + server_address + "/commit?term=" + strconv.Itoa(term) + "&term_to_commit=" + strconv.Itoa(term_to_commit) + "&value_to_commit=" + strconv.Itoa(value_to_commit) + "&index_to_commit=" + strconv.Itoa(index_to_commit))
 	if err != nil {
 		panic(err)
 	}
@@ -302,11 +302,14 @@ func commit_message(server_address string, half_servers int, term int, term_to_c
 			}
 		}
 		if number_commit_value == int(half_servers) {
+			m_server_log.Unlock()
 			m_state.Lock()
 			server_state.max_index = server_state.max_index + 1
 			m_state.Unlock()
+			// dire al client che va bene
+		} else {
+			m_server_log.Unlock()
 		}
-		// dire al client che va bene
 	}
 }
 
