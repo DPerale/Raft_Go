@@ -211,6 +211,9 @@ func http_raft_server(w http.ResponseWriter, r *http.Request) {
 					m_server_log.Unlock()
 					m_state.Lock()
 					server_state.max_index = server_state.max_index + 1
+					m_server_log.Lock()
+					fmt.Println(server_log[0:server_state.max_index])
+					m_server_log.Unlock()
 					m_state.Unlock()
 					w.Write([]byte(parameters["term"][0]))
 				} else {
