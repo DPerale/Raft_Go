@@ -10,9 +10,9 @@ import (
 	"math/rand"
 	"net/url"
 
-	//"strings"
 	"math"
 	"strconv"
+	"strings"
 	"sync"
 
 	// "sync"
@@ -32,14 +32,17 @@ type state struct {
 	id_leader  string
 	server_num int
 
-	state     int
-	term      int
-	max_index int
+	state            int
+	term             int
+	max_index        int
+	max_leader_index int
 
 	hb_received bool
 
 	term_vote_send      int
 	term_votes_received int
+
+	in_learning bool
 }
 
 var server_log []log_atom
@@ -57,35 +60,83 @@ func recovery() {
 	}
 }
 
-// func append_entries_message(server_addresses *[]string, server_address string, server_state *state, term int, value int, log_term int, index int) {
-// 	defer recovery()
-// 	client := http.Client{Timeout: 300 * time.Millisecond}
-// 	resp, err := client.Get("http://" + server_address + "/append_entries?term=" + strconv.Itoa(term) + "&value" + strconv.Itoa(value) + "&log_term=" + strconv.Itoa(log_term) + "&index=" + strconv.Itoa(index))
-// 	if err != nil {
-// 		panic(err)
-// 	}
-// 	defer resp.Body.Close()
-// 	body, err := ioutil.ReadAll(resp.Body)
-// 	index_received, _ := strconv.Atoi(string(body))
-// 	m_state.Lock()
-// 	if index_received != (server_state.max_index) {
-// 		m_state.Unlock()
-// 	} else {
-// 		m_state.Unlock()
-// 		fmt.Println("/ricevuta risposta appendentries")
+func learn_log_message(server_address string, last_log_entry_index int, last_log_entry_term int) int {
+	defer recovery()
+	client := http.Client{Timeout: 300 * time.Millisecond}
+	resp, err := client.Get("http://" + server_address + "/learn_log?last_log_entry_term=" + strconv.Itoa(last_log_entry_term) + "&last_log_entry_index=" + strconv.Itoa(last_log_entry_index))
+	if err != nil {
+		return -1
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	term_received, _ := strconv.Atoi(string(body))
+	return term_received
+}
 
-// 		m_server_log_temp.Lock()
-// 		number_commit_values = number_commit_values + 1
-// 		half_servers := math.Floor(float64(server_state.server_num)/2) + 1
-// 		if number_commit_values == int(half_servers) {
-// 			number_commit_values = 0
-// 			m_server_log_temp.Unlock()
-// 			for i := 0; i < len(*server_addresses); i++ {
-// 				go commit_message(server_addresses, (*server_addresses)[i], server_state, term, value)
-// 			}
-// 		}
-// 	}
-// }
+func request_log_entry_message(server_address string, index_to_request int) string {
+	defer recovery()
+	client := http.Client{Timeout: 300 * time.Millisecond}
+	resp, err := client.Get("http://" + server_address + "/request_log_entry?index_to_request=" + strconv.Itoa(index_to_request))
+	if err != nil {
+		nomess := "a/a/a"
+		return nomess
+	}
+	defer resp.Body.Close()
+	body, err := ioutil.ReadAll(resp.Body)
+	message_received := string(body)
+	return message_received
+}
+
+func learn_log() {
+	my_last_log_entry_is_ok := false
+	for !my_last_log_entry_is_ok {
+		m_state.Lock()
+		m_server_log.Lock()
+		last_log_entry_index := server_state.max_index
+		last_log_entry_term := server_log[last_log_entry_index].term
+		m_server_log.Unlock()
+		leader_id := server_state.id_leader
+		m_state.Unlock()
+		term_received := learn_log_message(leader_id, last_log_entry_index, last_log_entry_term)
+		m_state.Lock()
+		if term_received == server_state.term || server_state.max_index == 0 {
+			m_state.Unlock()
+			my_last_log_entry_is_ok = true
+		} else {
+			m_server_log.Lock()
+			server_log = server_log[0:server_state.max_index]
+			server_state.max_index = server_state.max_index - 1
+			m_server_log.Unlock()
+			m_state.Unlock()
+		}
+	}
+
+	i_have_all_log := false
+	for !i_have_all_log {
+		m_state.Lock()
+		index_to_request := server_state.max_index + 1
+		leader_id := server_state.id_leader
+		m_state.Unlock()
+		message_received := request_log_entry_message(leader_id, index_to_request)
+		values := strings.Split(message_received, "/")
+		if values[0] != "a" {
+			m_server_log.Lock()
+			entry_term, _ := strconv.Atoi(values[0])
+			entry_value, _ := strconv.Atoi(values[1])
+			entry_client := values[2]
+			server_log = append(server_log, log_atom{entry_term, entry_value, entry_client})
+			m_server_log.Unlock()
+			m_state.Lock()
+			server_state.max_index = server_state.max_index + 1
+			fmt.Println(server_log[0 : server_state.max_index+1])
+			if server_state.max_index == server_state.max_leader_index {
+				i_have_all_log = true
+				server_state.in_learning = false
+			}
+			m_state.Unlock()
+		}
+	}
+}
 
 func http_raft_server(w http.ResponseWriter, r *http.Request) {
 	//time.Sleep(1 * time.Second)
@@ -94,8 +145,6 @@ func http_raft_server(w http.ResponseWriter, r *http.Request) {
 
 	type_of_message := r.URL.Path
 	host := r.Host
-	fmt.Println("host")
-	fmt.Println(host)
 	parameters, _ := url.ParseQuery(r.URL.RawQuery)
 
 	switch type_of_message {
@@ -133,19 +182,21 @@ func http_raft_server(w http.ResponseWriter, r *http.Request) {
 		entrie_client_received := parameters["entrie_client"][0]
 
 		// fmt.Println(term_received)
-		fmt.Println(id_received)
+		// fmt.Println(id_received)
 		// fmt.Println(index_received)
 		// fmt.Println(log_term_received)
 		// fmt.Println(entrie_term_received)
 		// fmt.Println(entrie_value_received)
 
 		m_state.Lock()
-		if term_received < server_state.term {
+		if term_received < server_state.term || server_state.in_learning {
 			m_state.Unlock()
 		} else {
 			server_state.hb_received = true
 			server_state.state = 1
 			server_state.term = term_received
+			server_state.id_leader = id_received
+			server_state.max_leader_index = index_received
 			m_state.Unlock()
 			if entrie_term_received == -1 {
 				// nessuna nuova entry
@@ -156,6 +207,10 @@ func http_raft_server(w http.ResponseWriter, r *http.Request) {
 				if len(server_log) < index_received+1 {
 					// mancano entries richiedere log
 					m_server_log.Unlock()
+					m_state.Lock()
+					server_state.in_learning = true
+					m_state.Unlock()
+					go learn_log()
 				} else {
 					if server_log[index_received].term == log_term_received {
 						// apposto aggiungere valore
@@ -164,8 +219,12 @@ func http_raft_server(w http.ResponseWriter, r *http.Request) {
 						m_server_log.Unlock()
 						w.Write([]byte(parameters["term"][0]))
 					} else {
-						// problema, richiedere log all'indietro
+						// problema nell'ultima entrie conosciuta, richiedere log all'indietro
 						m_server_log.Unlock()
+						m_state.Lock()
+						server_state.in_learning = true
+						m_state.Unlock()
+						go learn_log()
 					}
 				}
 			}
@@ -200,7 +259,7 @@ func http_raft_server(w http.ResponseWriter, r *http.Request) {
 		index_to_commit_received, _ := strconv.Atoi(parameters["index_to_commit"][0])
 
 		m_state.Lock()
-		if term_received < server_state.term {
+		if term_received < server_state.term || server_state.in_learning {
 			//tralascia
 			m_state.Unlock()
 		} else {
@@ -212,17 +271,25 @@ func http_raft_server(w http.ResponseWriter, r *http.Request) {
 					m_state.Lock()
 					server_state.max_index = server_state.max_index + 1
 					m_server_log.Lock()
-					fmt.Println(server_log[0:server_state.max_index])
+					fmt.Println(server_log[0 : server_state.max_index+1])
 					m_server_log.Unlock()
 					m_state.Unlock()
 					w.Write([]byte(parameters["term"][0]))
 				} else {
-					//qualcosa non va, richiedere log
+					//i valori del commit e quelli posseduti sono diversi
 					m_server_log.Unlock()
+					m_state.Lock()
+					server_state.in_learning = true
+					m_state.Unlock()
+					go learn_log()
 				}
 			} else {
 				//manca qualcosa richiedere log
 				m_server_log.Unlock()
+				m_state.Lock()
+				server_state.in_learning = true
+				m_state.Unlock()
+				go learn_log()
 			}
 		}
 
@@ -308,6 +375,9 @@ func commit_message(server_address string, half_servers int, term int, term_to_c
 			m_server_log.Unlock()
 			m_state.Lock()
 			server_state.max_index = server_state.max_index + 1
+			m_server_log.Lock()
+			fmt.Println(server_log[0 : server_state.max_index+1])
+			m_server_log.Unlock()
 			m_state.Unlock()
 			// dire al client che va bene
 		} else {
@@ -410,9 +480,11 @@ func main() {
 		state:               3,
 		term:                0,
 		max_index:           0,
+		max_leader_index:    0,
 		hb_received:         false,
 		term_vote_send:      0,
-		term_votes_received: 0}
+		term_votes_received: 0,
+		in_learning:         false}
 
 	server_log = append(server_log, log_atom{0, -1, "127.0.0.1"})
 
