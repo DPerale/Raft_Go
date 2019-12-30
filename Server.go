@@ -181,13 +181,6 @@ func http_raft_server(w http.ResponseWriter, r *http.Request) {
 		entrie_value_received, _ := strconv.Atoi(parameters["entrie_value"][0])
 		entrie_client_received := parameters["entrie_client"][0]
 
-		// fmt.Println(term_received)
-		// fmt.Println(id_received)
-		// fmt.Println(index_received)
-		// fmt.Println(log_term_received)
-		// fmt.Println(entrie_term_received)
-		// fmt.Println(entrie_value_received)
-
 		m_state.Lock()
 		if term_received < server_state.term {
 			m_state.Unlock()
@@ -284,7 +277,7 @@ func http_raft_server(w http.ResponseWriter, r *http.Request) {
 		index_to_commit_received, _ := strconv.Atoi(parameters["index_to_commit"][0])
 
 		m_state.Lock()
-		if term_received < server_state.term || server_state.in_learning {
+		if term_received < server_state.term || server_state.in_learning || index_to_commit_received <= server_state.max_index {
 			//tralascia
 			m_state.Unlock()
 		} else {
