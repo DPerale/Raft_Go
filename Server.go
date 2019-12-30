@@ -99,7 +99,7 @@ func learn_log() {
 		m_state.Unlock()
 		term_received := learn_log_message(leader_id, last_log_entry_index, last_log_entry_term)
 		m_state.Lock()
-		if term_received == server_state.term || server_state.max_index == 0 {
+		if term_received == last_log_entry_term || server_state.max_index == 0 {
 			m_state.Unlock()
 			my_last_log_entry_is_ok = true
 		} else {
@@ -200,6 +200,7 @@ func http_raft_server(w http.ResponseWriter, r *http.Request) {
 			m_state.Unlock()
 			if entrie_term_received == -1 {
 				// nessuna nuova entry
+				// aggiungere parte dove controlla l'ultimo log anche se non ci sono aggiunte
 				w.Write([]byte(parameters["term"][0]))
 			} else {
 				// nuova entry
@@ -292,7 +293,35 @@ func http_raft_server(w http.ResponseWriter, r *http.Request) {
 				go learn_log()
 			}
 		}
-
+	case "/learn_log":
+		entry_term_received, _ := strconv.Atoi(parameters["last_log_entry_term"][0])
+		entry_index_received, _ := strconv.Atoi(parameters["last_log_entry_index"][0])
+		m_state.Lock()
+		m_server_log.Lock()
+		if server_state.state != 0 || server_log[entry_index_received].term != entry_term_received {
+			//tralascia
+			m_state.Unlock()
+			m_server_log.Unlock()
+			w.Write([]byte(strconv.Itoa(-1)))
+		} else {
+			m_state.Unlock()
+			m_server_log.Unlock()
+			w.Write([]byte(strconv.Itoa(entry_term_received)))
+		}
+	case "/request_log_entry":
+		index_received, _ := strconv.Atoi(parameters["index_to_request"][0])
+		m_state.Lock()
+		if server_state.state != 0 {
+			m_state.Unlock()
+			w.Write([]byte("a/a/a"))
+		} else {
+			m_server_log.Lock()
+			entry_term := strconv.Itoa(server_log[index_received].term)
+			entry_value := strconv.Itoa(server_log[index_received].value)
+			entry_client := server_log[index_received].client
+			m_server_log.Unlock()
+			w.Write([]byte(entry_term + "/" + entry_value + "/" + entry_client))
+		}
 	default:
 		fmt.Println("cosa vuoi")
 	}
