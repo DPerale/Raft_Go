@@ -189,7 +189,7 @@ func http_raft_server(w http.ResponseWriter, r *http.Request) {
 		// fmt.Println(entrie_value_received)
 
 		m_state.Lock()
-		if term_received < server_state.term || server_state.in_learning {
+		if term_received < server_state.term {
 			m_state.Unlock()
 		} else {
 			server_state.hb_received = true
@@ -197,35 +197,58 @@ func http_raft_server(w http.ResponseWriter, r *http.Request) {
 			server_state.term = term_received
 			server_state.id_leader = id_received
 			server_state.max_leader_index = index_received
-			m_state.Unlock()
-			if entrie_term_received == -1 {
-				// nessuna nuova entry
-				// aggiungere parte dove controlla l'ultimo log anche se non ci sono aggiunte
-				w.Write([]byte(parameters["term"][0]))
+			if server_state.in_learning {
+				m_state.Unlock()
 			} else {
-				// nuova entry
-				m_server_log.Lock()
-				if len(server_log) < index_received+1 {
-					// mancano entries richiedere log
-					m_server_log.Unlock()
-					m_state.Lock()
-					server_state.in_learning = true
-					m_state.Unlock()
-					go learn_log()
-				} else {
-					if server_log[index_received].term == log_term_received {
-						// apposto aggiungere valore
-						server_log = server_log[0:(index_received + 1)]
-						server_log = append(server_log, log_atom{entrie_term_received, entrie_value_received, entrie_client_received})
-						m_server_log.Unlock()
-						w.Write([]byte(parameters["term"][0]))
-					} else {
-						// problema nell'ultima entrie conosciuta, richiedere log all'indietro
+				m_state.Unlock()
+				if entrie_term_received == -1 {
+					// nessuna nuova entry
+					m_server_log.Lock()
+					if len(server_log) < index_received+1 {
+						// mancano entries richiedere log
 						m_server_log.Unlock()
 						m_state.Lock()
 						server_state.in_learning = true
 						m_state.Unlock()
 						go learn_log()
+					} else {
+						if server_log[index_received].term == log_term_received {
+							// apposto
+							m_server_log.Unlock()
+						} else {
+							// problema nell'ultima entrie conosciuta, richiedere log all'indietro
+							m_server_log.Unlock()
+							m_state.Lock()
+							server_state.in_learning = true
+							m_state.Unlock()
+							go learn_log()
+						}
+					}
+				} else {
+					// nuova entry
+					m_server_log.Lock()
+					if len(server_log) < index_received+1 {
+						// mancano entries richiedere log
+						m_server_log.Unlock()
+						m_state.Lock()
+						server_state.in_learning = true
+						m_state.Unlock()
+						go learn_log()
+					} else {
+						if server_log[index_received].term == log_term_received {
+							// apposto aggiungere valore
+							server_log = server_log[0:(index_received + 1)]
+							server_log = append(server_log, log_atom{entrie_term_received, entrie_value_received, entrie_client_received})
+							m_server_log.Unlock()
+							w.Write([]byte(parameters["term"][0]))
+						} else {
+							// problema nell'ultima entrie conosciuta, richiedere log all'indietro
+							m_server_log.Unlock()
+							m_state.Lock()
+							server_state.in_learning = true
+							m_state.Unlock()
+							go learn_log()
+						}
 					}
 				}
 			}
@@ -247,8 +270,9 @@ func http_raft_server(w http.ResponseWriter, r *http.Request) {
 			m_server_log.Unlock()
 			//w.Write([]byte(parameters["term"][0]))
 		} else {
+			leader_id := server_state.id_leader
 			m_state.Unlock()
-			//w.Write([]byte(parameters["term"][0]))
+			w.Write([]byte(leader_id))
 			// indirizzare al leader
 		}
 	case "/commit":
@@ -309,12 +333,14 @@ func http_raft_server(w http.ResponseWriter, r *http.Request) {
 			w.Write([]byte(strconv.Itoa(entry_term_received)))
 		}
 	case "/request_log_entry":
+		time.Sleep(50 * time.Millisecond)
 		index_received, _ := strconv.Atoi(parameters["index_to_request"][0])
 		m_state.Lock()
 		if server_state.state != 0 {
 			m_state.Unlock()
 			w.Write([]byte("a/a/a"))
 		} else {
+			m_state.Unlock()
 			m_server_log.Lock()
 			entry_term := strconv.Itoa(server_log[index_received].term)
 			entry_value := strconv.Itoa(server_log[index_received].value)
@@ -452,6 +478,7 @@ func heartbeat() {
 	for true {
 		m_state.Lock()
 		if server_state.state == 0 {
+			fmt.Println("heartbeat")
 			id := server_state.id
 			term := server_state.term
 			index := server_state.max_index
