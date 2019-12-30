@@ -373,6 +373,9 @@ func request_vote_message(server_address string, term int, log_term int, index i
 		server_state.term_votes_received = server_state.term_votes_received + 1
 		half_servers := math.Floor(float64(server_state.server_num)/2) + 1
 		if server_state.term_votes_received == int(half_servers) && server_state.state == 2 {
+			m_server_log.Lock()
+			server_log = server_log[0 : server_state.max_index+1]
+			m_server_log.Unlock()
 			server_state.state = 0
 			fmt.Println("sono il leader")
 		}
@@ -512,16 +515,13 @@ func main() {
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
 	num_server := 1
+	scanner.Scan()
+	server_id := scanner.Text()
 	for scanner.Scan() {
 		server_addresses = append(server_addresses, scanner.Text())
 		server_map[scanner.Text()] = append(server_map[scanner.Text()], 0)
 		server_map[scanner.Text()] = append(server_map[scanner.Text()], 0)
 		num_server = num_server + 1
-	}
-
-	for i := 0; i < len(server_addresses); i++ {
-		fmt.Println(server_map[server_addresses[i]][0])
-		fmt.Println(server_map[server_addresses[i]][1])
 	}
 
 	for i := 0; i < num_server-1; i++ {
@@ -530,7 +530,7 @@ func main() {
 
 	//inizializzazione parametri server
 	server_state = state{
-		id:                  "192.168.1.168",
+		id:                  server_id,
 		id_leader:           "",
 		server_num:          num_server,
 		state:               3,
