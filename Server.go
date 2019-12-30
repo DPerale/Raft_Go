@@ -463,7 +463,7 @@ func heartbeat_message(half_servers int, server_address string, term int, id str
 			if number_commit_value == int(half_servers) {
 				m_server_log.Unlock()
 				for i := 0; i < len(server_addresses); i++ {
-					go commit_message(server_address, half_servers, term, entrie_term, entrie_value, index+1)
+					go commit_message((server_addresses)[i], half_servers, term, entrie_term, entrie_value, index+1)
 				}
 			} else {
 				m_server_log.Unlock()
