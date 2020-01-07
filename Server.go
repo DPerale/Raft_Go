@@ -502,6 +502,8 @@ func heartbeat() {
 
 func main() {
 	// lettura indirizzi altri server
+	fmt.Println("Inizializzazione Server")
+
 	server_map = make(map[string][]int)
 	file, err := os.Open("addresses.txt")
 	if err != nil {
