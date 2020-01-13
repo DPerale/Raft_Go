@@ -590,7 +590,7 @@ func main() {
 		id:                  server_id,
 		id_leader:           "0.0.0.0",
 		server_num:          num_server,
-		state:               0,
+		state:               3,
 		term:                0,
 		max_index:           0,
 		max_leader_index:    0,
