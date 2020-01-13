@@ -418,6 +418,7 @@ func request_vote_message(server_address string, term int, log_term int, index i
 			server_log = server_log[0 : server_state.max_index+1]
 			m_server_log.Unlock()
 			server_state.state = 0
+			server_state.id_leader = server_state.id
 			fmt.Println("sono il leader")
 		}
 		m_state.Unlock()
