@@ -539,7 +539,6 @@ func heartbeat() {
 		//fmt.Println(runtime.NumGoroutine())
 		m_state.Lock()
 		if server_state.state == 0 {
-			fmt.Println("heartbeat")
 			id := server_state.id
 			term := server_state.term
 			index := server_state.max_index
